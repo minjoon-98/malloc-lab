@@ -252,35 +252,39 @@ static void *coalesce(void *bp)
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
+
 void *mm_realloc(void *ptr, size_t size)
 {
-    /* code */
+    // 이전 포인터를 저장할 변수
+    void *oldptr = ptr;
+    // 새로운 포인터를 저장할 변수
+    void *newptr;
+    // 복사할 크기를 저장할 변수
+    size_t copySize;
+
+    // 만약 새로운 크기가 0이면, 현재 포인터를 해제하고 NULL을 반환
+    if (size == 0)
+    {
+        mm_free(oldptr);
+        return NULL;
+    }
+
+    // 새로 할당된 메모리 공간을 할당
+    newptr = mm_malloc(size);
+    // 할당에 실패하면 NULL 반환
+    if (newptr == NULL)
+        return NULL;
+
+    // 이전 메모리 블록의 크기를 가져옴
+    // copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+    copySize = GET_SIZE(HDRP(oldptr)) - DSIZE;
+    // 복사할 크기가 새로운 크기보다 크다면 새로운 크기로 조정
+    if (size < copySize)
+        copySize = size;
+    // 이전 메모리 블록에서 새로운 메모리 블록으로 데이터를 복사
+    memcpy(newptr, oldptr, copySize);
+    // 이전 메모리 블록 해제
+    mm_free(oldptr);
+    // 새로운 메모리 블록 포인터 반환
+    return newptr;
 }
-
-// void *mm_realloc(void *ptr, size_t size)
-// {
-//     // 이전 포인터를 저장할 변수
-//     void *oldptr = ptr;
-//     // 새로운 포인터를 저장할 변수
-//     void *newptr;
-//     // 복사할 크기를 저장할 변수
-//     size_t copySize;
-
-//     // 새로 할당된 메모리 공간을 할당
-//     newptr = mm_malloc(size);
-//     // 할당에 실패하면 NULL 반환
-//     if (newptr == NULL)
-//         return NULL;
-
-//     // 이전 메모리 블록의 크기를 가져옴
-//     copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-//     // 복사할 크기가 새로운 크기보다 크다면 새로운 크기로 조정
-//     if (size < copySize)
-//         copySize = size;
-//     // 이전 메모리 블록에서 새로운 메모리 블록으로 데이터를 복사
-//     memcpy(newptr, oldptr, copySize);
-//     // 이전 메모리 블록 해제
-//     mm_free(oldptr);
-//     // 새로운 메모리 블록 포인터 반환
-//     return newptr;
-// }
