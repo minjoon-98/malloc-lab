@@ -184,7 +184,7 @@ static void *find_fit(size_t asize)
 
 static void place(void *bp, size_t asize)
 {
-    size_t csize = GET_SIZE(HDRP(bp)); // 현재 블록의 크기를 가져옴
+    size_t csize = GET_SIZE(HDRP(bp)); // 현재 블록의 크기를 가져옴 current size
 
     // 현재 블록의 크기가 요청한 크기보다 2 * DSIZE보다 큰 경우
     if ((csize - asize) >= (2 * DSIZE))
