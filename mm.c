@@ -79,10 +79,13 @@ team_t team = {
  * mm_init - initialize the malloc package.
    mm_init: creates a heap with an initial free block (최초 가용 블록으로 힙 생성하기)
  */
+
+static char *heap_listp;
+
 int mm_init(void)
 {
     /* Create the initial empty heap */ // 초기 힙 생성
-    char *heap_listp;
+    // char *heap_listp; // 함수 내부가 아닌 전역변수로 설정
     if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1) // 4워드 크기의 힙 생성, heap_listp에 힙의 시작 주소값 할당
         return -1;
     PUT(heap_listp, 0); /* Alignment padding */                          // 정렬 패딩
@@ -167,8 +170,9 @@ void *mm_malloc(size_t size)
 static void *find_fit(size_t asize)
 {
     /* First-fit search */
-    void *bp; /* Pointer to the block to be examined */                              // 검사할 블록을 가리키는 포인터
-    char *heap_listp = mem_heap_lo() + DSIZE; /* Pointer to the start of the heap */ // 힙의 시작 부분을 가리키는 포인터에서 DSIZE만큼 다음을 봄
+    void *bp; /* Pointer to the block to be examined */ // 검사할 블록을 가리키는 포인터
+    // char *heap_listp = mem_heap_lo() + DSIZE; /* Pointer to the start of the heap */ // 힙의 시작 부분을 가리키는 포인터에서 DSIZE만큼 다음을 봄
+    // heap_listp를 함수 내부가 아닌 전역변수로 설정
 
     // 힙 리스트를 순회하여 적합한 블록을 찾음
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
