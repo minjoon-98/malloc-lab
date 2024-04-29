@@ -67,7 +67,7 @@ team_t team = {
 
 /* Global variables */
 static char *heap_listp = 0; // Pointer to first block
-static char *rover;          // Next fit rover
+// static char *rover;          // Next fit rover
 
 /* Function prototypes for internal helper routines */
 static void *extend_heap(size_t words);
@@ -91,7 +91,7 @@ int mm_init(void)
     PUT(heap_listp + (3 * WSIZE), PACK(0, 1)); /* Epilogue header */     // 에필로그 Header: 프로그램이 할당한 마지막 블록의 뒤에 위치하며, 블록이 할당되지 않은 상태를 나타냄
     heap_listp += (2 * WSIZE);                                           // heap_listp를 프롤로그 블록 Footer로 이동시킵니다.
 
-    rover = heap_listp; // 로버를 힙 리스트의 시작점으로 설정
+    // rover = heap_listp; // 로버를 힙 리스트의 시작점으로 설정
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */ /* 빈 힙을 CHUNKSIZE 바이트의 가용 블록으로 확장 */
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
@@ -275,9 +275,9 @@ static void *coalesce(void *bp)
         bp = PREV_BLKP(bp);
     }
 
-    // Make sure the rover isn't pointing into the free block that we just coalesced
-    if ((rover > (char *)bp) && (rover < NEXT_BLKP(bp)))
-        rover = bp;
+    // // Make sure the rover isn't pointing into the free block that we just coalesced
+    // if ((rover > (char *)bp) && (rover < NEXT_BLKP(bp)))
+    //     rover = bp;
 
     return bp;
 }
