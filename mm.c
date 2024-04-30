@@ -67,7 +67,7 @@ team_t team = {
 
 /* Global variables */
 static char *heap_listp = 0; // Pointer to first block
-// static char *rover;          // Next fit rover
+static char *rover;          // Next fit rover
 
 /* Function prototypes for internal helper routines */
 static void *extend_heap(size_t words);
@@ -91,7 +91,7 @@ int mm_init(void)
     PUT(heap_listp + (3 * WSIZE), PACK(0, 1)); /* Epilogue header */     // 에필로그 Header: 프로그램이 할당한 마지막 블록의 뒤에 위치하며, 블록이 할당되지 않은 상태를 나타냄
     heap_listp += (2 * WSIZE);                                           // heap_listp를 프롤로그 블록 Footer로 이동시킵니다.
 
-    // rover = heap_listp; // 로버를 힙 리스트의 시작점으로 설정
+    rover = heap_listp; // rover의 초기값을 설정
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */ /* 빈 힙을 CHUNKSIZE 바이트의 가용 블록으로 확장 */
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
@@ -159,51 +159,20 @@ void *mm_malloc(size_t size)
 
 static void *find_fit(size_t asize)
 {
-    // /* First-fit search */
-    // void *bp; /* Pointer to the block to be examined */ // 검사할 블록을 가리키는 포인터
+    /* Next-fit search */
+    char *oldrover = rover;
 
-    // // 힙 리스트를 순회하여 적합한 블록을 찾음
-    // for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
-    // {
-    //     // 블록이 가용 상태이고, 요청한 크기보다 크거나 같으면
-    //     if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
-    //     {
-    //         return bp; // 해당 블록 포인터 리턴
-    //     }
-    // }
-    // return NULL; /* No fit */ // 적합한 블록을 찾지 못한 경우 NULL 반환
+    // Search from the rover to the end of list
+    for (; GET_SIZE(HDRP(rover)) > 0; rover = NEXT_BLKP(rover))
+        if (!GET_ALLOC(HDRP(rover)) && (asize <= GET_SIZE(HDRP(rover))))
+            return rover;
 
-    // /* Next-fit search */
-    // char *oldrover = rover; // 현재의 로버 위치를 oldrover 변수에 저장
+    // Search from start of list to old rover
+    for (rover = heap_listp; rover < oldrover; rover = NEXT_BLKP(rover))
+        if (!GET_ALLOC(HDRP(rover)) && (asize <= GET_SIZE(HDRP(rover))))
+            return rover;
 
-    // // Search from the rover to the end of list // 로버부터 리스트의 끝까지 검색
-    // for (; GET_SIZE(HDRP(rover)) > 0; rover = NEXT_BLKP(rover))
-    //     if (!GET_ALLOC(HDRP(rover)) && (asize <= GET_SIZE(HDRP(rover))))
-    //         return rover; // 로버가 가리키는 블록이 할당되지 않았고 요청한 크기보다 크거나 같으면 해당 블록 반환
-
-    // // Search from start of list to old rover // 리스트의 시작부터 oldrover까지 검색
-    // for (rover = heap_listp; rover < oldrover; rover = NEXT_BLKP(rover))
-    //     if (!GET_ALLOC(HDRP(rover)) && (asize <= GET_SIZE(HDRP(rover))))
-    //         return rover; // 로버가 가리키는 블록이 할당되지 않았고 요청한 크기보다 크거나 같으면 해당 블록 반환
-
-    // return NULL; // No fit found // 적절한 블록을 찾지 못한 경우 NULL 반환
-
-    /* Best-fit search */
-    void *best_fit = NULL; // 최적의 적합 블록을 가리킬 포인터
-    size_t min_size = -1;  // 최적의 적합 블록 크기 SIZE_MAX
-
-    // 힙 리스트를 순회하여 적합한 블록을 찾음
-    for (void *bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
-    {
-        // 블록이 가용 상태이고, 요청한 크기보다 크거나 같으면서 현재 최소 크기보다 작은 경우
-        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))) && (min_size == -1 || GET_SIZE(HDRP(bp)) < min_size))
-        {
-            min_size = GET_SIZE(HDRP(bp)); // 최소 크기 갱신
-            best_fit = bp;                 // 현재 블록을 최적의 적합 블록으로 설정
-        }
-    }
-
-    return best_fit; // 최적의 적합 블록 포인터 반환 (없을 경우 NULL)
+    return NULL; // No fit found
 }
 
 static void place(void *bp, size_t asize)
@@ -244,7 +213,6 @@ void mm_free(void *ptr)
 /* Coalesce free blocks */
 static void *coalesce(void *bp)
 {
-    // 이전 블록과 다음 블록의 할당 여부 및 크기 가져오기
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
@@ -275,9 +243,9 @@ static void *coalesce(void *bp)
         bp = PREV_BLKP(bp);
     }
 
-    // // Make sure the rover isn't pointing into the free block that we just coalesced
-    // if ((rover > (char *)bp) && (rover < NEXT_BLKP(bp)))
-    //     rover = bp;
+    // Make sure the rover isn't pointing into the free block that we just coalesced
+    if ((rover > (char *)bp) && (rover < NEXT_BLKP(bp)))
+        rover = bp;
 
     return bp;
 }
