@@ -207,7 +207,7 @@ static void place(void *bp, size_t asize)
         bp = NEXT_BLKP(bp);                    // 다음 블록으로 이동
         PUT(HDRP(bp), PACK(csize - asize, 0)); // 남은 부분의 헤더 설정
         PUT(FTRP(bp), PACK(csize - asize, 0)); // 남은 부분의 풋터 설정
-        add_freelist(bp);
+        add_freelist(bp);                      // 분할하고 남은 가용 부분을 freelist에 추가
     }
     else // 현재 블록의 크기가 요청한 크기보다 작은 경우
     {
