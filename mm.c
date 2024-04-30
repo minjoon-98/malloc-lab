@@ -242,11 +242,7 @@ static void *coalesce(void *bp)
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-
-    // // Make sure the rover isn't pointing into the free block that we just coalesced
-    // if ((rover > (char *)bp) && (rover < NEXT_BLKP(bp)))
-    //     rover = bp;
-
+    
     return bp;
 }
 
