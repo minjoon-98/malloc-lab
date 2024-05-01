@@ -66,11 +66,11 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE(((char *)(bp)-DSIZE)))   // 이전 블록의 포인터
 
 /* accessing predecessor and successor pointers in the free list */
-#define PRED_FREEP(bp) (*(void **)(bp))         // 가용 리스트에서 이전 블록을 가리키는 포인터
-#define SUCC_FREEP(bp) (*(void **)(bp + WSIZE)) // 가용 리스트에서 다음 블록을 가리키는 포인터
+#define PRED_FREEP(bp) (*(void **)(bp))                 // 가용 리스트에서 이전 블록을 가리키는 포인터
+#define SUCC_FREEP(bp) (*(void **)((char *)bp + WSIZE)) // 가용 리스트에서 다음 블록을 가리키는 포인터
 
 /* Global variables */
-static char *heap_listp = NULL; // Pointer to first block // 항상 prologue block을 가리키는 정적 전역 변수 설정
+// static char *heap_listp = NULL; // Pointer to first block // 항상 prologue block을 가리키는 정적 전역 변수 설정
 static char *free_listp = NULL; // Pointer to the beginning of the free list
 
 int mm_init(void);
@@ -85,8 +85,8 @@ static void *find_fit(size_t asize);
 static void place(void *bp, size_t asize);
 
 /* for explicit free list */
-void add_freelist(void *bp);
-void remove_freelist(void *bp);
+static void add_freelist(void *bp);
+static void remove_freelist(void *bp);
 
 /*
  * mm_init - initialize the malloc package.
@@ -95,26 +95,24 @@ void remove_freelist(void *bp);
 
 int mm_init(void)
 {
-    /* Create the initial empty heap */ /* padding, prol_header, prol_footer, PREC, SUCC, epil_header */
-    // 초기 힙 생성 // 💡Explicit allocator의 초기 힙은 6word의 메모리를 가진다.
-    if ((heap_listp = mem_sbrk(6 * WSIZE)) == (void *)-1) // /* 메모리에서 6word 가져오고 이걸로 빈 가용 리스트 초기화 */
+    // 초기 힙 생성
+    if ((free_listp = mem_sbrk(8 * WSIZE)) == (void *)-1) // 8워드 크기의 힙 생성, free_listp에 힙의 시작 주소값 할당(가용 블록만 추적)
         return -1;
-    PUT(heap_listp, 0); /* Alignment padding */                                                        // 정렬 패딩
-    PUT(heap_listp + (1 * WSIZE), PACK(4 * WSIZE, 1)); /* Prologue header */                           /* Initial Prologue block size, header, footer, PREC, SUCC */
-    PUT(heap_listp + (2 * WSIZE), NULL); /* Predecessor pointer of the prologue block (set to NULL) */ // 프롤로그 PRED 포인터 NULL로 초기화
-    PUT(heap_listp + (3 * WSIZE), NULL); /* Successor pointer of the prologue block (set to NULL) */   // 프롤로그 SUCC 포인터 NULL로 초기화
-    PUT(heap_listp + (4 * WSIZE), PACK(4 * WSIZE, 1)); /* Prologue footer */                           // header, footer, PREC, SUCC 총 4워드 사이즈를 가짐
-    PUT(heap_listp + (5 * WSIZE), PACK(0, 1)); /* Epilogue header */                                   // 프로그램이 할당한 마지막 블록의 뒤에 위치하며, 블록이 할당되지 않은 상태를 나타냄
-    heap_listp += (2 * WSIZE);                                                                         // heap_listp를 프롤로그 블록 Header 다음으로 이동시킵니다.
-    // 프롤로그 블록도 하나의 블록으로 간주, 따라서 내가 이해한 바로는 heap_listp는 가장 첫번째 블록 포인터로서 헤더 다음에 위치한다.
-    // ex) 이를 통해 뒤에 나오는 first fit을 한다고 해도 프롤로그 블록의 헤더를 참조하여 사이즈를 알아낸다.
-    // explicit free list에서는 PRED와 SUCC에 바로 접근 가능
+    PUT(free_listp, 0);                                // 정렬 패딩
+    PUT(free_listp + (1 * WSIZE), PACK(2 * WSIZE, 1)); // 프롤로그 Header
+    PUT(free_listp + (2 * WSIZE), PACK(2 * WSIZE, 1)); // 프롤로그 Footer
+    PUT(free_listp + (3 * WSIZE), PACK(4 * WSIZE, 0)); // 첫 가용 블록의 헤더
+    PUT(free_listp + (4 * WSIZE), NULL);               // 이전 가용 블록의 주소
+    PUT(free_listp + (5 * WSIZE), NULL);               // 다음 가용 블록의 주소
+    PUT(free_listp + (6 * WSIZE), PACK(4 * WSIZE, 0)); // 첫 가용 블록의 푸터
+    PUT(free_listp + (7 * WSIZE), PACK(0, 1));         // 에필로그 Header: 프로그램이 할당한 마지막 블록의 뒤에 위치하며, 블록이 할당되지 않은 상태를 나타냄
 
-    free_listp = heap_listp; // free_listp를 탐색의 시작점으로 둔다.
+    free_listp += (4 * WSIZE); // 첫번째 가용 블록의 bp
 
-    /* Extend the empty heap with a free block of CHUNKSIZE bytes */ /* 빈 힙을 CHUNKSIZE 바이트의 가용 블록으로 확장 */
+    // 힙을 CHUNKSIZE bytes로 확장
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
         return -1;
+
     return 0;
 }
 
@@ -178,16 +176,14 @@ void *mm_malloc(size_t size)
 static void *find_fit(size_t asize)
 {
     /* First-fit search */
-    void *bp; /* Pointer to the block to be examined */ // 검사할 블록을 가리키는 포인터
+    void *bp = free_listp; /* Pointer to the block to be examined */ // 검사할 블록을 가리키는 포인터
 
     // 가용리스트를 순회하며 맞는 사이즈의 가용 블록을 찾음
-    for (bp = free_listp; GET_ALLOC(HDRP(bp)) != 1; bp = SUCC_FREEP(bp))
+    while (bp != NULL) // 다음 가용 블럭이 있는 동안 반복
     {
-        //  요청한 크기보다 크거나 같으면
-        if (asize <= GET_SIZE(HDRP(bp)))
-        {
-            return bp; // 해당 블록 포인터 리턴
-        }
+        if ((asize <= GET_SIZE(HDRP(bp)))) // 적합한 사이즈의 블록을 찾으면 반환
+            return bp;
+        bp = SUCC_FREEP(bp); // 다음 가용 블록으로 이동
     }
     return NULL; /* No fit */ // 적합한 블록을 찾지 못한 경우 NULL 반환
 }
@@ -195,8 +191,6 @@ static void *find_fit(size_t asize)
 static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp)); // 현재 블록의 크기를 가져옴 current size
-
-    remove_freelist(bp); // 할당될 블록이므로 free list에서 없애준다.
 
     // 현재 블록의 크기가 요청한 크기보다 2 * DSIZE보다 큰 경우
     // 분할이 가능한 경우, 앞 블록을 할당된 블록, 뒷 블록을 가용블록으로 분할
@@ -207,10 +201,27 @@ static void place(void *bp, size_t asize)
         bp = NEXT_BLKP(bp);                    // 다음 블록으로 이동
         PUT(HDRP(bp), PACK(csize - asize, 0)); // 남은 부분의 헤더 설정
         PUT(FTRP(bp), PACK(csize - asize, 0)); // 남은 부분의 풋터 설정
-        add_freelist(bp);                      // 분할하고 남은 가용 부분을 freelist에 추가
+
+        // TODO:
+        SUCC_FREEP(bp) = SUCC_FREEP(PREV_BLKP(bp));
+        if (SUCC_FREEP(bp) != NULL)
+        {
+            PRED_FREEP(SUCC_FREEP(bp)) = bp;
+        }
+
+        if (PREV_BLKP(bp) == free_listp)
+        {
+            free_listp = bp;
+        }
+        else
+        {
+            PRED_FREEP(bp) = PRED_FREEP(PREV_BLKP(bp));
+            SUCC_FREEP(PRED_FREEP(PREV_BLKP(bp))) = bp;
+        }
     }
     else // 현재 블록의 크기가 요청한 크기보다 작은 경우
     {
+        remove_freelist(bp);
         PUT(HDRP(bp), PACK(csize, 1)); // 현재 블록 헤더 설정
         PUT(FTRP(bp), PACK(csize, 1)); // 현재 블록 풋터 설정
     }
@@ -221,9 +232,6 @@ static void place(void *bp, size_t asize)
  */
 void mm_free(void *bp)
 {
-    if (!bp)
-        return;
-
     size_t size = GET_SIZE(HDRP(bp));
 
     PUT(HDRP(bp), PACK(size, 0));
@@ -231,6 +239,7 @@ void mm_free(void *bp)
     coalesce(bp);
 }
 
+// TODO:
 /* Coalesce free blocks */
 static void *coalesce(void *bp)
 {
@@ -240,36 +249,38 @@ static void *coalesce(void *bp)
     size_t size = GET_SIZE(HDRP(bp));
 
     // Case 1: prev and next allocated // 직전 직후 블록이 모두 할당 -> 현재 블록만 free list에 추가
-
-    if (prev_alloc && !next_alloc) // Case 2: prev allocated, next free
+    if (prev_alloc && next_alloc) // 모두 할당된 경우
+    {
+        add_freelist(bp); // free_list에 추가
+        return bp;        // 블록의 포인터 반환
+    }
+    else if (prev_alloc && !next_alloc) // Case 2: prev allocated, next free
     {
         remove_freelist(NEXT_BLKP(bp)); // free 상태였던 직후 블록을 free list에서 제거
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
+        add_freelist(bp); // 연결된 새 가용 블록을 free list에 추가
     }
 
     else if (!prev_alloc && next_alloc) // Case 3: prev free, next allocated
     {
-        remove_freelist(PREV_BLKP(bp)); // free 상태였던 직전 블록을 free list에서 제거
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
-        bp = PREV_BLKP(bp);
-        PUT(HDRP(bp), PACK(size, 0));
-        PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0)); // 이전 블록 헤더 재설정
+        PUT(FTRP(bp), PACK(size, 0));            // 현재 블록 푸터 재설정
+        bp = PREV_BLKP(bp);                      // 이전 블록의 시작점으로 포인터 변경
     }
 
-    else if (!prev_alloc && !next_alloc) // Case 4: next and prev free
+    else // Case 4: next and prev free
     {
-        remove_freelist(PREV_BLKP(bp));
         remove_freelist(NEXT_BLKP(bp));
         size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0)); // 이전 블록 헤더 재설정
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0)); // 다음 블록 푸터 재설정
         bp = PREV_BLKP(bp);
-        PUT(HDRP(bp), PACK(size, 0));
-        PUT(FTRP(bp), PACK(size, 0));
     }
 
-    add_freelist(bp); // 연결된 새 가용 블록을 free list에 추가
-    return bp;
+    return bp; // 병합한 가용 블록의 포인터 반환
 }
 
 /*
@@ -322,12 +333,30 @@ void *mm_realloc(void *ptr, size_t size)
  *   그에 따라 전임자 및 후임자 포인터를 업데이트합니다.
  */
 
-void add_freelist(void *bp)
+static void add_freelist(void *bp) // 가용 리스트에서 주소 오름차순에 맞게 현재 블록을 추가하는 함수
 {
-    SUCC_FREEP(bp) = free_listp; // 새 블록의 후임자 포인터를 현재 가용 리스트의 시작으로 설정합니다.
-    PRED_FREEP(bp) = NULL;       // 새 블록의 전임자 포인터를 NULL로 설정합니다. 새 블록은 가용 리스트의 새로운 시작이기 때문입니다.
-    PRED_FREEP(free_listp) = bp; // 가용 리스트가 비어 있지 않으면, 현재 가용 리스트의 시작의 전임자 포인터를 새 블록으로 설정합니다.
-    free_listp = bp;             // 가용 리스트 포인터를 새 블록으로 업데이트합니다.
+    void *currentp = free_listp;
+    if (currentp == NULL) // 가용 리스트가 없었을 때 가용리스트의 처음으로 설정
+    {
+        free_listp = bp;
+        SUCC_FREEP(bp) = NULL;
+        return;
+    }
+    while (currentp < bp) // 검사중인 주소가 추가하려는 블록의 주소보다 작을 동안 반복
+    {                     // 주소 순으로 넣어주기 위해 free된 블록의 주소에 맞는 위치를 찾는 과정
+        if (SUCC_FREEP(currentp) == NULL || SUCC_FREEP(currentp) > bp)
+            break;
+        currentp = SUCC_FREEP(currentp); // 가용리스트의 처음부터 가용 블록이 들어갈 위치를 찾음
+    }                                    // bp는 현재 가용리스트에 추가할 가용블록이고, currentp 바로 뒤에 연결됨
+
+    SUCC_FREEP(bp) = SUCC_FREEP(currentp); // bp의 후임자를 currentp의 후임자로 설정
+    SUCC_FREEP(currentp) = bp;             // currnetp의 후임자를 bp으로 설정
+    PRED_FREEP(bp) = currentp;             // 현재 블록의 전임자를 currentp로 설정
+    // currentp -> bp -> 이렇게 연결해준다.
+    if (SUCC_FREEP(bp) != NULL) // 만약 bp의 후임자가 있다면
+    {
+        PRED_FREEP(SUCC_FREEP(bp)) = bp; // bp후임자의 전임자를 bp로 설정 (설정하지 않으면, currentp로 설정되어 있기 때문)
+    }
 }
 
 /*
@@ -339,16 +368,16 @@ void add_freelist(void *bp)
  *   그에 따라 전임자 및 후임자 포인터를 업데이트합니다.
  */
 
-void remove_freelist(void *bp)
+static void remove_freelist(void *bp) // 가용 리스트에서 bp에 해당하는 블록을 제거하는 함수
 {
     if (bp == free_listp) // 제거할 블록이 가용 리스트의 헤드인 경우
     {
-        PRED_FREEP(SUCC_FREEP(bp)) = NULL; // 현재 헤드의 후임자의 전임자 포인터를 NULL로 설정합니다.
-        free_listp = SUCC_FREEP(bp);       // 가용 리스트 포인터를 현재 헤드의 후임자로 업데이트합니다.
+        free_listp = SUCC_FREEP(free_listp); // 다음 블록을 루트로 변경
+        return;
     }
-    else
-    {
-        SUCC_FREEP(PRED_FREEP(bp)) = SUCC_FREEP(bp); // 제거할 블록의 전임자의 후임자 포인터를 제거할 블록의 후임자로 설정합니다.
-        PRED_FREEP(SUCC_FREEP(bp)) = PRED_FREEP(bp); // 제거할 블록의 후임자의 전임자 포인터를 제거할 블록의 전임자로 설정합니다.
-    }
+    // 이전 블록의 SUCC을 다음 가용 블록으로 연결
+    SUCC_FREEP(PRED_FREEP(bp)) = SUCC_FREEP(bp);
+    // 다음 블록의 PRED를 이전 블록으로 변경
+    if (SUCC_FREEP(bp) != NULL) // 다음 가용 블록이 있을 경우만
+        PRED_FREEP(SUCC_FREEP(bp)) = PRED_FREEP(bp);
 }
