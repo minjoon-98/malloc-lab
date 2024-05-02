@@ -1,5 +1,3 @@
-// 44 (util) + 40 (thru) = 53/100
-
 /*
  * mm-naive.c - The fastest, least memory-efficient malloc package.
  *
@@ -35,6 +33,16 @@ team_t team = {
     "",
     /* Second member's email address (leave blank if none) */
     ""};
+
+// /* single word (4) or double word (8) alignment */ /* 한 단어(4) 또는 두 단어(8) 정렬 */
+// #define ALIGNMENT 8
+
+// /* rounds up to the nearest multiple of ALIGNMENT */    /* ALIGNMENT의 최대 배수로 반올림 */
+// #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7) // 사이즈 (~0x7: ...11111000, '&' 연산으로 뒤에 세자리 없어짐)
+// // 현재 사이즈에서 바로 끝 3비트를 빼게 되면 현재 사이즈보다 작아질 수 있다.
+// // 8을 더해주면 정렬되는 것보다 크기가 커지니, 7을 더해준 후, 뒤 3비트를 제거함 (3비트를 뺴는 것은 8로 나눴을때의 나머지를 제거해서 8의 배수로 만들어줬다는 뜻)
+
+// #define SIZE_T_SIZE (ALIGN(sizeof(size_t))) // 두 값 중에서 더 큰 값을 반환하는 매크로
 
 /* Basic constants and macros */ /* 기본 상수와 매크로 */
 /* 기본 상수 */
@@ -83,7 +91,8 @@ static void place(void *bp, size_t asize);
 
 int mm_init(void)
 {
-    /* Create the initial empty heap */                   // 초기 힙 생성
+    /* Create the initial empty heap */ // 초기 힙 생성
+    // char *heap_listp; // 함수 내부가 아닌 전역변수로 설정
     if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1) // 4워드 크기의 힙 생성, heap_listp에 힙의 시작 주소값 할당
         return -1;
     PUT(heap_listp, 0); /* Alignment padding */                          // 정렬 패딩
@@ -123,6 +132,15 @@ static void *extend_heap(size_t words) /* 힙을 확장하는 함수. 힙 초기
  */
 void *mm_malloc(size_t size)
 {
+    // int newsize = ALIGN(size + SIZE_T_SIZE);
+    // void *p = mem_sbrk(newsize);
+    // if (p == (void *)-1)
+    //     return NULL;
+    // else
+    // {
+    //     *(size_t *)p = size;
+    //     return (void *)((char *)p + SIZE_T_SIZE);
+    // }
     size_t asize; /* Adjusted block size */                  // 조정된 블록 크기
     size_t extendsize; /* Amount to extend heap if no fit */ // 적합한 블록이 없을 경우 힙을 확장하는 양
     char *bp;                                                // 할당된 블록을 가리키는 포인터
@@ -158,22 +176,21 @@ void *mm_malloc(size_t size)
 
 static void *find_fit(size_t asize)
 {
-    /* Best-fit search */
-    void *best_fit = NULL; // 최적의 적합 블록을 가리킬 포인터
-    size_t min_size = -1;  // 최적의 적합 블록 크기 SIZE_MAX
+    /* First-fit search */
+    void *bp; /* Pointer to the block to be examined */ // 검사할 블록을 가리키는 포인터
+    // char *heap_listp = mem_heap_lo() + DSIZE; /* Pointer to the start of the heap */ // 힙의 시작 부분을 가리키는 포인터에서 DSIZE만큼 다음을 봄
+    // heap_listp를 함수 내부가 아닌 전역변수로 설정
 
     // 힙 리스트를 순회하여 적합한 블록을 찾음
-    for (void *bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
+    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
     {
-        // 블록이 가용 상태이고, 요청한 크기보다 크거나 같으면서 현재 최소 크기보다 작은 경우
-        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))) && (min_size == -1 || GET_SIZE(HDRP(bp)) < min_size))
+        // 블록이 가용 상태이고, 요청한 크기보다 크거나 같으면
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
         {
-            min_size = GET_SIZE(HDRP(bp)); // 최소 크기 갱신
-            best_fit = bp;                 // 현재 블록을 최적의 적합 블록으로 설정
+            return bp; // 해당 블록 포인터 리턴
         }
     }
-
-    return best_fit; // 최적의 적합 블록 포인터 반환 (없을 경우 NULL)
+    return NULL; /* No fit */ // 적합한 블록을 찾지 못한 경우 NULL 반환
 }
 
 static void place(void *bp, size_t asize)
@@ -201,9 +218,6 @@ static void place(void *bp, size_t asize)
  */
 void mm_free(void *ptr)
 {
-    if (!ptr)
-        return;
-
     size_t size = GET_SIZE(HDRP(ptr));
 
     PUT(HDRP(ptr), PACK(size, 0));
@@ -211,41 +225,39 @@ void mm_free(void *ptr)
     coalesce(ptr);
 }
 
-/* Coalesce free blocks */
 static void *coalesce(void *bp)
 {
-    // 이전 블록과 다음 블록의 할당 여부 및 크기 가져오기
-    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
+    size_t prev_alloc = GET_ALLOC(HDRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t prev_size = GET_SIZE(HDRP(PREV_BLKP(bp)));
+    size_t next_size = GET_SIZE(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
 
     if (prev_alloc && next_alloc) // Case 1: prev and next allocated
+    {
         return bp;
-
+    }
     else if (prev_alloc && !next_alloc) // Case 2: prev allocated, next free
     {
-        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        size += next_size;
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
+        return bp;
     }
-
     else if (!prev_alloc && next_alloc) // Case 3: prev free, next allocated
     {
-        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
-        PUT(FTRP(bp), PACK(size, 0));
+        size += prev_size;
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
-        bp = PREV_BLKP(bp);
+        PUT(FTRP(bp), PACK(size, 0));
+        return PREV_BLKP(bp);
     }
-
     else // Case 4: next and prev free
     {
-        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        size += prev_size + next_size;
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
-        bp = PREV_BLKP(bp);
+        return PREV_BLKP(bp);
     }
-
-    return bp;
 }
 
 /*
